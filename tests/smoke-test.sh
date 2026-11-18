@@ -11,11 +11,25 @@ name="postfix-smoke-$$"
 domain="mail.example.test"
 workdir=$(mktemp -d)
 failures=0
+report=""
+
+# On GitHub Actions, also emit an error annotation (shown on the run page).
+annotate() {  # title, text
+  [[ "${GITHUB_ACTIONS:-}" == true ]] || return 0
+  local text=$2
+  text=${text//'%'/%25}; text=${text//$'\r'/%0D}; text=${text//$'\n'/%0A}
+  echo "::error title=$1::$text"
+}
 
 cleanup() {
-  if (( failures > 0 )); then
+  local rc=$?
+  if (( failures > 0 || rc != 0 )); then
+    local logs
+    logs=$(docker logs "$name" 2>&1 | tail -n 80 || true)
     echo "----- container logs -----"
-    docker logs "$name" 2>&1 | tail -n 100 || true
+    echo "$logs"
+    annotate "Smoke test failures" "${report:-smoke test exited with code $rc}"
+    annotate "Container logs (last 80 lines)" "${logs:-no logs}"
   fi
   docker rm -f "$name" >/dev/null 2>&1 || true
   rm -rf "$workdir"
@@ -23,7 +37,12 @@ cleanup() {
 trap cleanup EXIT
 
 pass() { echo "PASS: $*"; }
-fail() { echo "FAIL: $*"; failures=$((failures + 1)); }
+fail() {  # summary, [details]
+  echo "FAIL: $1"
+  [[ -n "${2:-}" ]] && echo "$2"
+  report+="FAIL: $1"$'\n'"${2:+$2$'\n'}"
+  failures=$((failures + 1))
+}
 
 # Second user has a password containing ':' and ',' to test parsing.
 cat > "$workdir/users" <<'EOF'
@@ -54,11 +73,11 @@ wait_ready() {
       return 0
     fi
     if [[ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]]; then
-      failures=1; echo "container exited"; exit 1
+      fail "container exited during start-up"; exit 1
     fi
     sleep 1
   done
-  failures=1; echo "postfix did not become ready"; exit 1
+  fail "postfix did not become ready within 60s"; exit 1
 }
 
 expect_ok() {  # description, swaks args...
@@ -66,18 +85,18 @@ expect_ok() {  # description, swaks args...
   if out=$(swaks --from "${from:-alice@$domain}" --to rcpt@example.com --quit-after RCPT "$@" 2>&1); then
     pass "$desc"
   else
-    fail "$desc"; echo "$out" | tail -n 15
+    fail "$desc" "$(tail -n 15 <<< "$out")"
   fi
 }
 
 expect_fail() {  # description, expected output regex, swaks args...
   local desc=$1 pattern=$2; shift 2
   if out=$(swaks --from "${from:-alice@$domain}" --to rcpt@example.com --quit-after RCPT "$@" 2>&1); then
-    fail "$desc (unexpectedly succeeded)"; echo "$out" | tail -n 15
+    fail "$desc (unexpectedly succeeded)" "$(tail -n 15 <<< "$out")"
   elif grep -Eq "$pattern" <<< "$out"; then
     pass "$desc"
   else
-    fail "$desc (failed for an unexpected reason)"; echo "$out" | tail -n 15
+    fail "$desc (failed for an unexpected reason)" "$(tail -n 15 <<< "$out")"
   fi
 }
 

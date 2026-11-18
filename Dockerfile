@@ -2,6 +2,8 @@ FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # Preseed debconf so the postfix package installs without prompting.
 # The entrypoint overwrites main.cf completely at start-up anyway.
 RUN printf '%s\n' \
@@ -17,8 +19,7 @@ RUN printf '%s\n' \
       ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY assets/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 755 /usr/local/bin/entrypoint.sh
+COPY --chmod=755 assets/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # 25 = SMTP (STARTTLS), 465 = SMTPS (implicit TLS), 587 = submission (STARTTLS required)
 EXPOSE 25 465 587

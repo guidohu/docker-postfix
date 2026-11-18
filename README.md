@@ -1,7 +1,7 @@
 docker-postfix
 ==============
 
-[![Build](../../actions/workflows/build.yml/badge.svg)](../../actions/workflows/build.yml)
+[![Build](https://github.com/guidohu/docker-postfix/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/guidohu/docker-postfix/actions/workflows/build.yml)
 
 **Note** This project is forked from [catatnight/docker-postfix](https://github.com/catatnight/docker-postfix) to provide the same functionality with updated packages.
 
@@ -145,7 +145,7 @@ It needs `docker`, `swaks` and `openssl`:
 docker build -t guhu/postfix:test . && tests/smoke-test.sh guhu/postfix:test
 ```
 
-The GitHub Actions workflow [.github/workflows/build.yml](.github/workflows/build.yml) lints the scripts, builds the image and runs the smoke test on every push to `master`/`main`.
+The GitHub Actions workflow [.github/workflows/build.yml](.github/workflows/build.yml) lints the scripts and the Dockerfile, builds the image and runs the smoke test on every push to any branch and on every pull request. It also runs weekly, to catch breakage from Debian updates. The badge at the top shows the result for `master`.
 
 ## Reference
 + [Postfix SASL Howto](https://www.postfix.org/SASL_README.html)

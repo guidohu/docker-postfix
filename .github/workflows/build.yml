@@ -1,17 +1,21 @@
 name: Build
 
 on:
+  # Every commit on every branch, and every pull request.
   push:
-    # The repository's default branch is "master"; "main" is included so the
-    # workflow keeps working if the branch is renamed.
-    branches: [main, master]
+    branches: ['**']
+  pull_request:
+  # Weekly rebuild: catches breakage from new Debian/base image updates even
+  # when nothing was committed.
+  schedule:
+    - cron: '17 4 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,20 +24,28 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Lint shell scripts
         run: shellcheck --severity=warning assets/entrypoint.sh tests/smoke-test.sh
 
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+          # DL3008: pinning apt package versions would block security updates.
+          ignore: DL3008
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # No layer cache on purpose: every build pulls the current base image
       # and installs the current Debian security updates.
       - name: Build image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           pull: true
