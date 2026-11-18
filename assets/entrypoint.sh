@@ -169,6 +169,8 @@ smtpd_hard_error_limit = 5
 smtpd_sasl_auth_enable = yes
 smtpd_sasl_type = cyrus
 smtpd_sasl_path = smtpd
+# Debian does not read /etc/postfix/sasl/smtpd.conf unless told to.
+cyrus_sasl_config_path = /etc/postfix/sasl
 smtpd_sasl_security_options = noanonymous
 smtpd_sasl_tls_security_options = noanonymous
 smtpd_sasl_authenticated_header = no

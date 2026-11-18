@@ -25,11 +25,11 @@ cleanup() {
   local rc=$?
   if (( failures > 0 || rc != 0 )); then
     local logs
-    logs=$(docker logs "$name" 2>&1 | tail -n 80 || true)
+    logs=$(docker logs "$name" 2>&1 | tail -n 25 || true)
     echo "----- container logs -----"
     echo "$logs"
     annotate "Smoke test failures" "${report:-smoke test exited with code $rc}"
-    annotate "Container logs (last 80 lines)" "${logs:-no logs}"
+    annotate "Container logs (last 25 lines)" "${logs:-no logs}"
   fi
   docker rm -f "$name" >/dev/null 2>&1 || true
   rm -rf "$workdir"
