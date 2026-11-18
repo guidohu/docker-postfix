@@ -25,7 +25,7 @@ COPY --chmod=755 assets/entrypoint.sh /usr/local/bin/entrypoint.sh
 EXPOSE 25 465 587
 
 HEALTHCHECK --interval=60s --timeout=10s --start-period=20s \
-  CMD postfix status >/dev/null 2>&1 || exit 1
+  CMD ["postfix", "status"]
 
 # No USER directive: Postfix's master process refuses to start unless it runs
 # as uid 0. It drops privileges to the "postfix" user for every daemon that
