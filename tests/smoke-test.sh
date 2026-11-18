@@ -1,12 +1,12 @@
 #!/bin/bash
 #
 # Smoke test for the postfix relay image.
-#   usage: tests/smoke-test.sh [image]        (default image: guhu/postfix:test)
+#   usage: tests/smoke-test.sh [image]        (default image: docker-postfix:test)
 # Requires: docker, swaks, openssl.
 
 set -euo pipefail
 
-image="${1:-guhu/postfix:test}"
+image="${1:-docker-postfix:test}"
 name="postfix-smoke-$$"
 domain="mail.example.test"
 workdir=$(mktemp -d)

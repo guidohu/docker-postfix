@@ -1,7 +1,7 @@
 services:
   postfix:
-    image: guhu/postfix
-    build: .
+    image: ghcr.io/guidohu/docker-postfix:latest
+    # build: .          # uncomment to build locally instead of pulling
     container_name: postfix
     restart: unless-stopped
     # Prefer binding to a LAN address, e.g. "192.168.1.10:25:25", so the relay

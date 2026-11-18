@@ -1,12 +1,13 @@
 name: Build
 
 on:
-  # Every commit on every branch, and every pull request.
+  # Every commit on every branch, every version tag, and every pull request.
   push:
     branches: ['**']
+    tags: ['v*']
   pull_request:
-  # Weekly rebuild: catches breakage from new Debian/base image updates even
-  # when nothing was committed.
+  # Weekly rebuild: picks up Debian security updates (and publishes them)
+  # even when nothing was committed.
   schedule:
     - cron: '17 4 * * 1'
   workflow_dispatch:
@@ -16,12 +17,22 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run on master half-way through publishing.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/docker-postfix
+  # Publish only from master (push, weekly schedule, manual run) and v* tags;
+  # never from other branches or pull requests.
+  PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) }}
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write   # push to ghcr.io with GITHUB_TOKEN
     steps:
       - name: Check out
         uses: actions/checkout@v7
@@ -39,19 +50,25 @@ jobs:
           # DL3008: pinning apt package versions would block security updates.
           ignore: DL3008
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # No layer cache on purpose: every build pulls the current base image
-      # and installs the current Debian security updates.
-      - name: Build image
+      # no-cache: every build pulls the current base image and installs the
+      # current Debian security updates. The result is written to the cache
+      # only so the publish step below reuses exactly the tested layers.
+      - name: Build image for testing
         uses: docker/build-push-action@v7
         with:
           context: .
           pull: true
+          no-cache: true
           load: true
           push: false
-          tags: guhu/postfix:test
+          tags: docker-postfix:test
+          cache-to: type=gha,scope=docker-postfix,mode=max
 
       - name: Install test tools
         run: |
@@ -59,4 +76,44 @@ jobs:
           sudo apt-get install -y swaks
 
       - name: Smoke test
-        run: tests/smoke-test.sh guhu/postfix:test
+        run: tests/smoke-test.sh docker-postfix:test
+
+      # ---- publish (only after all checks above passed) ----
+
+      - name: Image metadata
+        if: env.PUBLISH == 'true'
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-,format=short
+          labels: |
+            org.opencontainers.image.title=docker-postfix
+            org.opencontainers.image.description=Authenticated SMTP relay (Postfix + Cyrus SASL) with legacy TLS support
+
+      - name: Log in to GitHub Container Registry
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish multi-arch image
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha,scope=docker-postfix
+          provenance: mode=max
+          sbom: true

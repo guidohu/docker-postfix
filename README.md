@@ -19,6 +19,22 @@ An authenticated SMTP relay: Postfix with SMTP authentication (Cyrus SASL, sasld
 | 465  | SMTPS      | implicit TLS, often called "SSL" in device settings | required for relaying |
 | 587  | Submission | STARTTLS required | required for relaying |
 
+## Image
+
+Published automatically to the GitHub Container Registry by the CI workflow, for `linux/amd64` and `linux/arm64`. An image is only published after all tests have passed:
+
+```bash
+docker pull ghcr.io/guidohu/docker-postfix:latest
+```
+
+| Tag | Meaning |
+|-----|---------|
+| `latest` | current `master`; also rebuilt every week with the latest Debian security updates |
+| `1.2.3`, `1.2`, `1` | releases, from git tags `v1.2.3` |
+| `sha-abc1234` | a specific commit |
+
+To build it yourself instead: `docker build -t ghcr.io/guidohu/docker-postfix .`
+
 ## Usage
 
 ### docker compose (recommended)
@@ -27,7 +43,7 @@ An authenticated SMTP relay: Postfix with SMTP authentication (Cyrus SASL, sasld
 printf 'user1:pwd1\nuser2:pwd2\n' > smtp_users.txt   # one user:password per line
 chmod 600 smtp_users.txt
 # edit maildomain in docker-compose.yml, put certificates into assets/certs/
-docker compose up -d --build
+docker compose up -d
 ```
 
 [docker-compose.yml](docker-compose.yml) passes the credentials as a secret file, drops capabilities, persists the mail queue and limits log size.
@@ -35,8 +51,6 @@ docker compose up -d --build
 ### docker run
 
 ```bash
-docker build -t guhu/postfix .
-
 docker run -d --name postfix --restart unless-stopped \
     -p 25:25 -p 465:465 -p 587:587 \
     -e maildomain=mail.example.com \
@@ -47,7 +61,7 @@ docker run -d --name postfix --restart unless-stopped \
     --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
     --cap-add SETUID --cap-add SETGID --cap-add KILL --cap-add NET_BIND_SERVICE \
     --security-opt no-new-privileges:true \
-    guhu/postfix
+    ghcr.io/guidohu/docker-postfix:latest
 ```
 
 ### Environment variables
@@ -142,10 +156,10 @@ OpenSSL 3 rejects TLS 1.0/1.1 and SHA-1 handshakes by default. With `tls_min_ver
 It needs `docker`, `swaks` and `openssl`:
 
 ```bash
-docker build -t guhu/postfix:test . && tests/smoke-test.sh guhu/postfix:test
+docker build -t docker-postfix:test . && tests/smoke-test.sh docker-postfix:test
 ```
 
-The GitHub Actions workflow [.github/workflows/build.yml](.github/workflows/build.yml) lints the scripts and the Dockerfile, builds the image and runs the smoke test on every push to any branch and on every pull request. It also runs weekly, to catch breakage from Debian updates. The badge at the top shows the result for `master`.
+The GitHub Actions workflow [.github/workflows/build.yml](.github/workflows/build.yml) lints the scripts and the Dockerfile, builds the image and runs the smoke test on every push to any branch and on every pull request. On `master`, version tags and the weekly run, it then publishes the image to `ghcr.io/guidohu/docker-postfix` (see [Image](#image)). The weekly run picks up Debian security updates. The badge at the top shows the result for `master`.
 
 ## Reference
 + [Postfix SASL Howto](https://www.postfix.org/SASL_README.html)
