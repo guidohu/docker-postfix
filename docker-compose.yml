@@ -1,6 +1,6 @@
 services:
   postfix:
-    image: ghcr.io/guidohu/docker-postfix:latest
+    image: ghcr.io/guidohu/docker-postfix/postfix:latest
     # build: .          # uncomment to build locally instead of pulling
     container_name: postfix
     restart: unless-stopped

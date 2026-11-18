@@ -24,7 +24,7 @@ An authenticated SMTP relay: Postfix with SMTP authentication (Cyrus SASL, sasld
 Published automatically to the GitHub Container Registry by the CI workflow, for `linux/amd64` and `linux/arm64`. An image is only published after all tests have passed:
 
 ```bash
-docker pull ghcr.io/guidohu/docker-postfix:latest
+docker pull ghcr.io/guidohu/docker-postfix/postfix:latest
 ```
 
 | Tag | Meaning |
@@ -33,7 +33,7 @@ docker pull ghcr.io/guidohu/docker-postfix:latest
 | `1.2.3`, `1.2`, `1` | releases, from git tags `v1.2.3` |
 | `sha-abc1234` | a specific commit |
 
-To build it yourself instead: `docker build -t ghcr.io/guidohu/docker-postfix .`
+To build it yourself instead: `docker build -t ghcr.io/guidohu/docker-postfix/postfix .`
 
 ## Usage
 
@@ -61,7 +61,7 @@ docker run -d --name postfix --restart unless-stopped \
     --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
     --cap-add SETUID --cap-add SETGID --cap-add KILL --cap-add NET_BIND_SERVICE \
     --security-opt no-new-privileges:true \
-    ghcr.io/guidohu/docker-postfix:latest
+    ghcr.io/guidohu/docker-postfix/postfix:latest
 ```
 
 ### Environment variables
@@ -159,7 +159,7 @@ It needs `docker`, `swaks` and `openssl`:
 docker build -t docker-postfix:test . && tests/smoke-test.sh docker-postfix:test
 ```
 
-The GitHub Actions workflow [.github/workflows/build.yml](.github/workflows/build.yml) lints the scripts and the Dockerfile, builds the image and runs the smoke test on every push to any branch and on every pull request. On `master`, version tags and the weekly run, it then publishes the image to `ghcr.io/guidohu/docker-postfix` (see [Image](#image)). The weekly run picks up Debian security updates. The badge at the top shows the result for `master`.
+The GitHub Actions workflow [.github/workflows/build.yml](.github/workflows/build.yml) lints the scripts and the Dockerfile, builds the image and runs the smoke test on every push to any branch and on every pull request. On `master`, version tags and the weekly run, it then publishes the image to `ghcr.io/guidohu/docker-postfix/postfix` (see [Image](#image)). The weekly run picks up Debian security updates. The badge at the top shows the result for `master`.
 
 ## Reference
 + [Postfix SASL Howto](https://www.postfix.org/SASL_README.html)
