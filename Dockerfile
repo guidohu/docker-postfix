@@ -1,17 +1,34 @@
-FROM ubuntu:focal
+FROM debian:trixie-slim
 
-# Set noninteractive mode for apt-get
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Update
-RUN apt-get update
+# Preseed debconf so the postfix package installs without prompting.
+# The entrypoint overwrites main.cf completely at start-up anyway.
+RUN printf '%s\n' \
+      "postfix postfix/main_mailer_type select Internet Site" \
+      "postfix postfix/mailname string localhost" \
+    | debconf-set-selections \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      postfix \
+      libsasl2-modules \
+      sasl2-bin \
+      openssl \
+      ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
-# Start editing
-# Install package here for cache
-RUN apt-get -y install postfix sasl2-bin opendkim opendkim-tools
+COPY assets/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 755 /usr/local/bin/entrypoint.sh
 
-# Add files
-ADD assets/install.sh /opt/install.sh
+# 25 = SMTP (STARTTLS), 465 = SMTPS (implicit TLS), 587 = submission (STARTTLS required)
+EXPOSE 25 465 587
 
-# Run
-CMD /opt/install.sh;/opt/postfix.sh
+HEALTHCHECK --interval=60s --timeout=10s --start-period=20s \
+  CMD postfix status >/dev/null 2>&1 || exit 1
+
+# No USER directive: Postfix's master process refuses to start unless it runs
+# as uid 0. It drops privileges to the "postfix" user for every daemon that
+# handles mail. The entrypoint removes all services that would stay root.
+# Restrict the container's root with cap_drop/no-new-privileges (see
+# docker-compose.yml) and, ideally, user namespace remapping.
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

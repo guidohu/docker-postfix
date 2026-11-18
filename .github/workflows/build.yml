@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  push:
+    # The repository's default branch is "master"; "main" is included so the
+    # workflow keeps working if the branch is renamed.
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Lint shell scripts
+        run: shellcheck --severity=warning assets/entrypoint.sh tests/smoke-test.sh
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # No layer cache on purpose: every build pulls the current base image
+      # and installs the current Debian security updates.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          pull: true
+          load: true
+          push: false
+          tags: guhu/postfix:test
+
+      - name: Install test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swaks
+
+      - name: Smoke test
+        run: tests/smoke-test.sh guhu/postfix:test
