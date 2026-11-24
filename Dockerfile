@@ -6,6 +6,9 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Preseed debconf so the postfix package installs without prompting.
 # The entrypoint overwrites main.cf completely at start-up anyway.
+# "postfix check" creates the queue directories now (with chown), so the
+# running container does not need CAP_CHOWN. The sasldb directory is setgid
+# root:postfix for the same reason (see entrypoint.sh).
 RUN printf '%s\n' \
       "postfix postfix/main_mailer_type select Internet Site" \
       "postfix postfix/mailname string localhost" \
@@ -18,7 +21,8 @@ RUN printf '%s\n' \
       openssl \
       ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && install -d -o root -g postfix -m 2750 /etc/postfix/sasldb
+ && install -d -o root -g postfix -m 2750 /etc/postfix/sasldb \
+ && postfix check
 
 COPY --chmod=755 assets/entrypoint.sh /usr/local/bin/entrypoint.sh
 
