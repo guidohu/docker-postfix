@@ -58,8 +58,7 @@ docker run -d --name postfix --restart unless-stopped \
     -v "$PWD/smtp_users.txt:/run/secrets/smtp_users:ro" \
     -v /path/to/certs:/etc/postfix/certs:ro \
     --cap-drop ALL \
-    --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
-    --cap-add SETUID --cap-add SETGID --cap-add KILL --cap-add NET_BIND_SERVICE \
+    --cap-add DAC_OVERRIDE --cap-add SETUID --cap-add SETGID \
     --security-opt no-new-privileges:true \
     ghcr.io/guidohu/docker-postfix/postfix:latest
 ```
@@ -74,6 +73,7 @@ docker run -d --name postfix --restart unless-stopped \
 | `smtp_senders` | no | Extra sender permissions, comma-separated: `address:user` or `@domain:user`. See [Sender addresses](#sender-addresses) |
 | `smtp_sender_file` | no | The same, one `address:user` or `@domain:user` per line |
 | `restrict_senders` | no | `yes` (default) restricts each login to its own sender addresses. `no` allows any sender address |
+| `max_recipients` | no | Maximum recipients per message, default `2`. Additional recipients are refused with `452 4.5.3 Error: too many recipients` |
 | `tls_min_version` | no | `TLSv1` (default), `TLSv1.1`, `TLSv1.2` or `TLSv1.3`. At `TLSv1.2` or above, the legacy cipher settings are switched off too |
 | `allow_plaintext_auth` | no | `yes` allows AUTH on port 25 without TLS, for devices that cannot do TLS at all. Default `no` |
 
@@ -116,6 +116,7 @@ Limitation: Postfix checks the envelope sender, not the `From:` header shown in 
 * **Sender addresses:** each login may only use the sender addresses it owns (see above).
 * **Login:** AUTH is only offered over TLS (unless `allow_plaintext_auth=yes`). DIGEST-MD5 and NTLM are not offered.
 * **Brute-force limits:** each client IP gets at most 20 AUTH attempts, 60 connections and 20 parallel connections per minute. A session is disconnected after 5 errors, for example 5 failed logins.
+* **Recipients per message:** at most `max_recipients` (default 2), which limits how much spam one message sent with a stolen password can reach.
 * **SMTP smuggling:** protection is on (`smtpd_forbid_bare_newline = normalize`), and legacy clients that send bare LF line endings still work.
 * **Credentials:** they are read from a secret file and removed from the environment before Postfix starts. The SASL database is readable, but not writable, by the `postfix` user.
 * **Information leaks:** no VRFY command, no Postfix version in the banner, and the authenticated user name is not added to message headers.
@@ -127,14 +128,28 @@ Postfix's `master` process must run as uid 0. This is enforced in its source cod
 * runs every Postfix daemon that handles network traffic or mail (`smtpd`, `smtp`, `cleanup`, `qmgr`, …) as the unprivileged `postfix` user,
 * removes all services that would run as root (`local`, `virtual`, `pipe` transports), so `master` is the only root process. The smoke test checks this.
 
-To keep that remaining root process from having host-level power, drop capabilities and set `no-new-privileges`, as shown above. You can also run Docker with [user namespace remapping](https://docs.docker.com/engine/security/userns-remap/) or in [rootless mode](https://docs.docker.com/engine/security/rootless/), or use rootless Podman.
+That remaining root process keeps only three capabilities. The smoke test checks this:
+
+| Capability | Why Postfix needs it |
+|------------|----------------------|
+| `SETUID`, `SETGID` | to start every daemon as the unprivileged `postfix` user |
+| `DAC_OVERRIDE` | `master` creates its sockets in queue directories owned by `postfix` |
+
+No capability is needed for ports below 1024, because Docker allows unprivileged binding inside the container's network namespace. With `network_mode: host`, add `NET_BIND_SERVICE`.
+
+**Running on other ports does not avoid root.** Postfix checks the user id, not the port. To make root inside the container an unprivileged user on the host, use a user namespace:
+
+* **Podman:** `podman run --userns=auto ...` gives each container its own unprivileged uid range. Rootless Podman does this for all containers.
+* **Docker:** run the daemon in [rootless mode](https://docs.docker.com/engine/security/rootless/), or enable [user namespace remapping](https://docs.docker.com/engine/security/userns-remap/) for the daemon.
+
+Rootless runtimes cannot publish host ports below 1024 by default. Either map high host ports to the container (`-p 2525:25 -p 2465:465 -p 2587:587`) and point devices at those, or allow low ports on the host with `sysctl net.ipv4.ip_unprivileged_port_start=25`. The container itself keeps listening on 25, 465 and 587.
 
 ### Things you should do yourself
 
 * **Don't expose the relay to the internet** unless you have to. Bind the ports to a LAN address (`"192.168.1.10:587:587"`) or firewall them. An SMTP AUTH port on the internet is scanned and brute-forced constantly.
 * **Rate limits and NAT:** the limits are per client IP. If Docker or a NAT device makes every client appear with the same IP (e.g. Docker Desktop, or some userland-proxy setups), the limits apply to all clients together.
 * **Consider fail2ban** on the host, matching `SASL .* authentication failed` in the container logs, for long-term bans.
-* **Rebuild the image regularly** (`docker compose build --pull`) to pick up Debian security updates.
+* **Update the image regularly** (`docker compose pull && docker compose up -d`). CI publishes a rebuilt `latest` with Debian security updates every week.
 * **Raise `tls_min_version`** to `TLSv1.2` once no legacy device needs TLS 1.0/1.1.
 
 ## Legacy TLS
@@ -150,7 +165,8 @@ OpenSSL 3 rejects TLS 1.0/1.1 and SHA-1 handshakes by default. With `tls_min_ver
 * unauthenticated relaying and wrong passwords are refused;
 * AUTH is not offered without TLS;
 * TLS 1.0–1.3 are accepted;
-* only `master` runs as root;
+* at most `max_recipients` recipients per message are accepted;
+* only `master` runs as root, and it holds only `DAC_OVERRIDE`, `SETUID` and `SETGID`;
 * a restart does not duplicate configuration.
 
 It needs `docker`, `swaks` and `openssl`:

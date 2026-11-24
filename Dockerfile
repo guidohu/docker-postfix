@@ -17,7 +17,8 @@ RUN printf '%s\n' \
       sasl2-bin \
       openssl \
       ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && install -d -o root -g postfix -m 2750 /etc/postfix/sasldb
 
 COPY --chmod=755 assets/entrypoint.sh /usr/local/bin/entrypoint.sh
 

@@ -17,6 +17,7 @@
 #                         "address:user" or "@domain:user" entries
 #   smtp_sender_file      same, one "address:user" / "@domain:user" per line
 #                         (every user always owns user@maildomain)
+#   max_recipients        maximum recipients per message (default 2)
 #   tls_min_version       TLSv1 (default), TLSv1.1, TLSv1.2 or TLSv1.3
 #   allow_plaintext_auth  "yes" to allow AUTH on port 25 without TLS.
 #                         Default "no": AUTH is only offered after TLS.
@@ -47,6 +48,9 @@ case "$tls_min_version" in
   TLSv1.2|TLSv1.3) legacy_tls=no ;;
   *) die "tls_min_version must be one of TLSv1, TLSv1.1, TLSv1.2, TLSv1.3" ;;
 esac
+
+max_recipients="${max_recipients:-2}"
+[[ "$max_recipients" =~ ^[1-9][0-9]{0,3}$ ]] || die "max_recipients must be a number between 1 and 9999"
 
 users=()
 if [[ -n "${smtp_user_file:-}" ]]; then
@@ -165,6 +169,10 @@ smtpd_client_connection_count_limit = 20
 smtpd_soft_error_limit = 3
 smtpd_hard_error_limit = 5
 
+# Recipients per message (see max_recipients). Extra recipients get
+# "452 4.5.3 Error: too many recipients".
+smtpd_recipient_limit = $max_recipients
+
 # SASL authentication (Cyrus, sasldb). See /etc/postfix/sasl/smtpd.conf.
 smtpd_sasl_auth_enable = yes
 smtpd_sasl_type = cyrus
@@ -230,14 +238,23 @@ postconf -P "smtps/inet/smtpd_relay_restrictions=permit_sasl_authenticated,rejec
 mkdir -p /etc/postfix/sasl
 # DIGEST-MD5 (obsoleted by RFC 6331) and NTLM are deliberately not offered.
 # CRAM-MD5 is kept for legacy devices.
+# The database lives in a directory that the image creates as root:postfix
+# with the setgid bit, so new files inherit group "postfix" without chown
+# (and the container does not need CAP_CHOWN).
+sasldb_dir=/etc/postfix/sasldb
+sasldb=$sasldb_dir/sasldb2
+[[ "$(stat -c '%G %A' "$sasldb_dir" 2>/dev/null)" == "postfix drwxr-s---" ]] \
+  || die "$sasldb_dir must exist as root:postfix with mode 2750 (created in the Dockerfile)"
+
 cat > /etc/postfix/sasl/smtpd.conf <<EOF
 pwcheck_method: auxprop
 auxprop_plugin: sasldb
+sasldb_path: $sasldb
 mech_list: PLAIN LOGIN CRAM-MD5
 EOF
 
 # Rebuild the database from scratch so removed users really disappear.
-rm -f /etc/sasldb2
+rm -f "$sasldb"
 user_re='^[A-Za-z0-9._+-]+$'
 configured_users=()
 declare -A is_user=()
@@ -248,16 +265,16 @@ for entry in "${users[@]}"; do
   _pwd=${entry#*:}
   [[ "$_user" =~ $user_re ]] || die "invalid smtp user name '$_user' (allowed: letters, digits, . _ + -)"
   [[ -n "$_pwd" ]] || die "empty password for smtp user '$_user'"
-  printf '%s\n' "$_pwd" | saslpasswd2 -p -c -u "$maildomain" "$_user"
+  printf '%s\n' "$_pwd" | saslpasswd2 -f "$sasldb" -p -c -u "$maildomain" "$_user"
   configured_users+=("$_user")
   is_user[$_user]=1
   log "SASL user ${_user}@${maildomain} configured"
 done
 unset entry _pwd users
-[[ -f /etc/sasldb2 ]] || die "no SASL users were created"
+[[ -f "$sasldb" ]] || die "no SASL users were created"
 # smtpd runs as "postfix" and only needs to read the database.
-chown root:postfix /etc/sasldb2
-chmod 640 /etc/sasldb2
+chmod 640 "$sasldb"
+[[ "$(stat -c %G "$sasldb")" == postfix ]] || die "$sasldb is not group-owned by postfix"
 
 ############
 # Sender address ownership
@@ -308,5 +325,5 @@ fi
 # Run
 ############
 postfix check
-log "starting postfix (minimum TLS version $tls_min_version)"
+log "starting postfix (minimum TLS version $tls_min_version, max $max_recipients recipients per message)"
 exec postfix start-fg

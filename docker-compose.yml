@@ -13,6 +13,7 @@ services:
     environment:
       maildomain: mail.example.com
       smtp_user_file: /run/secrets/smtp_users
+      max_recipients: "2"         # recipients per message
       # Each user may send as user@maildomain. Grant more sender addresses
       # ("address:user") or whole domains ("@domain:user"), comma-separated:
       # smtp_senders: "scanner@example.com:printer,@example.com:alice"
@@ -25,18 +26,18 @@ services:
       - ./assets/certs:/etc/postfix/certs:ro
       - postfix-queue:/var/spool/postfix   # keep queued mail across re-creates
     # Postfix's master process must be uid 0 inside the container, so strip
-    # everything from that "root" except what Postfix needs to drop privileges
-    # to the postfix user and manage its queue.
+    # that "root" down to the minimum (verified by tests/smoke-test.sh):
+    #   SETUID, SETGID  - start every daemon as the unprivileged postfix user
+    #   DAC_OVERRIDE    - master (root) creates sockets in postfix-owned queue dirs
+    # Ports below 1024 need no capability: Docker sets
+    # net.ipv4.ip_unprivileged_port_start=0 inside the container. With
+    # network_mode: host, add NET_BIND_SERVICE.
     cap_drop:
       - ALL
     cap_add:
-      - CHOWN
       - DAC_OVERRIDE
-      - FOWNER
       - SETUID
       - SETGID
-      - KILL
-      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
     pids_limit: 256

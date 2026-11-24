@@ -60,8 +60,7 @@ docker run -d --name "$name" \
   -e smtp_senders="@example.org:alice,printer@other.test:bob@$domain" \
   -v "$workdir/users:/run/secrets/smtp_users:ro" \
   --cap-drop ALL \
-  --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
-  --cap-add SETUID --cap-add SETGID --cap-add KILL --cap-add NET_BIND_SERVICE \
+  --cap-add DAC_OVERRIDE --cap-add SETUID --cap-add SETGID \
   --security-opt no-new-privileges:true \
   "$image" >/dev/null
 
@@ -153,6 +152,23 @@ run_tests() {
   else
     fail "unexpected AUTH mechanisms: '$mechs'"
   fi
+
+  # --- recipients per message (default max_recipients=2)
+  local out
+  if out=$(swaks --server 127.0.0.1:2587 --tls "${auth_alice[@]}" --from "alice@$domain" \
+             --to r1@example.com,r2@example.com --quit-after RCPT 2>&1) \
+     && ! grep -q '4\.5\.3' <<< "$out"; then
+    pass "2 recipients per message accepted"
+  else
+    fail "2 recipients per message not accepted" "$(tail -n 15 <<< "$out")"
+  fi
+  out=$(swaks --server 127.0.0.1:2587 --tls "${auth_alice[@]}" --from "alice@$domain" \
+          --to r1@example.com,r2@example.com,r3@example.com --quit-after RCPT 2>&1 || true)
+  if grep -q '452 4\.5\.3 .*too many recipients' <<< "$out"; then
+    pass "3rd recipient refused (452 too many recipients)"
+  else
+    fail "3rd recipient was not refused" "$(tail -n 15 <<< "$out")"
+  fi
 }
 
 wait_ready
@@ -173,6 +189,18 @@ if [[ "$root_procs" == "master " ]]; then
 else
   fail "processes running as root: $root_procs"
 fi
+
+# --- master holds exactly DAC_OVERRIDE (bit 1), SETGID (6), SETUID (7) = 0xc2
+capeff=$(docker exec "$name" awk '/^CapEff:/ { print $2 }' /proc/1/status)
+if [[ "$capeff" == 00000000000000c2 ]]; then
+  pass "master capabilities: DAC_OVERRIDE, SETGID, SETUID only (CapEff=$capeff)"
+else
+  fail "unexpected master capabilities: CapEff=$capeff"
+fi
+
+# --- recipient limit is applied from max_recipients (default 2)
+limit=$(docker exec "$name" postconf -h smtpd_recipient_limit)
+if [[ "$limit" == 2 ]]; then pass "smtpd_recipient_limit=2"; else fail "smtpd_recipient_limit=$limit"; fi
 docker top "$name" -eo pid,uid,user,comm
 
 # --- configuration survives a restart (entrypoint is idempotent)
